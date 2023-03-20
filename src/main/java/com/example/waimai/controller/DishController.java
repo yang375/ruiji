@@ -12,9 +12,11 @@ import com.example.waimai.service.DishFlavorService;
 import com.example.waimai.service.DishService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @RestController
@@ -26,6 +28,8 @@ public class DishController {
     private DishFlavorService dishFlavorService;
     @Autowired
     private CategoryService categoryService;
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     //新增菜品
     @PostMapping
@@ -98,6 +102,22 @@ public R<List<Dish>> list(Dish dish){
 
     @GetMapping("/list")
     public R<List<DishDto>> list(Dish dish){
+        List<DishDto> dishDtoList=null;
+
+        String key="dish_"+dish.getCategoryId()+"_"+dish.getStatus();
+        //先从redis获取数据
+        dishDtoList=(List<DishDto>)redisTemplate.opsForValue().get(key);
+
+        if(dishDtoList!=null){
+            //若果存在 直接返回无需查询数据库
+            return  R.success(dishDtoList);
+        }
+
+
+
+        //如果不存在  查询数据库  查到的菜品缓存到redis
+
+
         LambdaQueryWrapper<Dish> queryWrapper=new LambdaQueryWrapper<>();
         queryWrapper.eq(dish.getCategoryId()!=null,Dish::getCategoryId,dish.getCategoryId());
         //查询起售状态的
@@ -106,7 +126,7 @@ public R<List<Dish>> list(Dish dish){
         queryWrapper.orderByAsc(Dish::getSort).orderByDesc(Dish::getUpdateTime);
         List<Dish> list=dishService.list(queryWrapper);
 
-        List<DishDto> dishDtoList=list.stream().map((item)->{
+         dishDtoList=list.stream().map((item)->{
             DishDto dishDto=new DishDto();
 
             BeanUtils.copyProperties(item,dishDto);
@@ -129,6 +149,10 @@ public R<List<Dish>> list(Dish dish){
 
             return dishDto;
         }).collect(Collectors.toList());
+
+         //如果不存在 需要查数据库 将查到的菜品数据缓存到redis
+        redisTemplate.opsForValue().set(key,dishDtoList,60, TimeUnit.MINUTES);
+
         return R.success(dishDtoList);
     }
 

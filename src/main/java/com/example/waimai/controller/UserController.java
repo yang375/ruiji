@@ -9,6 +9,7 @@ import com.example.waimai.utils.ValidateCodeUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpSession;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/user")
@@ -24,6 +26,8 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+    @Autowired
+    private RedisTemplate redisTemplate;
     @PostMapping("/sendMsg")
     public R<String> sendMsg(@RequestBody User user, HttpSession session){
         //获取手机号
@@ -36,6 +40,12 @@ public class UserController {
 
             //SendSms.sendMessage("阿里云短信测试",);
             session.setAttribute(phone,code);
+
+
+            //将生成的验证码缓存到redis
+            redisTemplate.opsForValue().set(phone,code,5, TimeUnit.MINUTES);
+
+
             return R.success("收集验证码发送成功");
         }
         return R.error("短信发送失败");
@@ -59,7 +69,10 @@ public class UserController {
         //
         String code=map.get("code").toString();
 
-        Object codeInSession=session.getAttribute(phone);
+        //Object codeInSession=session.getAttribute(phone);
+
+        //从redis中获取缓存的验证码
+        Object codeInSession=redisTemplate.opsForValue().get(phone);
 
         if(codeInSession!=null&&codeInSession.equals(code)){
 
@@ -75,6 +88,9 @@ public class UserController {
                 userService.save(user);
             }
             session.setAttribute("user",user.getId());
+
+            //如果用户登录成功删除redis中缓存中的验证码
+            redisTemplate.delete(phone);
             return R.success(user);
 
         }
